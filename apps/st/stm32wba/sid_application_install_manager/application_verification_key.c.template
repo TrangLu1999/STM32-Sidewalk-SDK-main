@@ -1,0 +1,128 @@
+/**
+  ******************************************************************************
+  * @file    application_verification_key.c
+  * @brief   Sample Application Install Manager public key storage handling
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) @CURRENT_YEAR@ STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+
+/**
+ * @attention This is an auto-generated file. Do not edit it manually as all the changes might be overwritten
+ *            during the build process.
+ */
+
+/* Includes ------------------------------------------------------------------*/
+
+#include <malloc.h>
+#include <string.h>
+
+#include "application_verification_key.h"
+#include "utilities_conf.h"
+
+/* Private constants ---------------------------------------------------------*/
+
+/**
+ * @attention This is a sample implementation that simply stores the public key on flash without any protective
+ *            measures or encryption. This file can be used for demonstration purposes only. Always store your
+ *            secrets securely in production applications. The bare minimum would be to store the public key in
+ *            OTP area to prevent key replacement. You can use a custom aim_load_application_verification_key()
+ *            method implementation to load the key from any type of storage (like OTP or external secure one)
+ */
+#warning "You are using hard-coded application verification public key stored on the flash with no key protection. Please do not use this solution in production applications"
+
+static const ed25519_pub_key_t app_verification_key = {
+@APP_VERIFICATION_PUBLIC_KEY@
+};
+
+/* Private variables ---------------------------------------------------------*/
+
+static ed25519_pub_key_t * app_verification_key_ptr = NULL;
+
+/* Global function definitions -----------------------------------------------*/
+
+const ed25519_pub_key_t * aim_load_application_verification_key(void)
+{
+    /**
+     * @note This is a sample implementation showing how to load the firmware
+     *       verification from a storage and provide it to the AIM. While this
+     *       example uses the key store directly on flash and a pointer to
+     *       that flash  location can be returned immediately, dynamic memory
+     *       allocation and copying to the RAM buffer is used here intentionally
+     *       to demonstrate the strategy of handling key material that is stored
+     *       in a storage that is not directly accessible via a pointer (e.g.,
+     *       encrypted key storage).
+     *
+     * @warning The code below is suitable for demonstration purposes only. Do
+     *          not use it in production. To keep the boot and OTA processes
+     *          secure, the verification key shall at least be immutable (e.g.,
+     *          stored in OTP area). Key encryption is optional here since the
+     *          validation process uses Ed25519 EdDSA and only the public key
+     *          is used by AIM. Even if this key is extracted from the device,
+     *          it's still not suitable for signing firmware images.
+     */
+
+    UTILS_ENTER_CRITICAL_SECTION();
+
+    do
+    {
+        /* If somehow the RAM buffer was not freed from the past execution, release it to avoid memory leaks */
+        if (app_verification_key_ptr != NULL)
+        {
+            aim_release_application_verification_key();
+        }
+
+        /* Allocate temporary RAM buffer to keep the key material */
+        app_verification_key_ptr = malloc(sizeof(ed25519_pub_key_t));
+        if (NULL == app_verification_key_ptr)
+        {
+            /* Failed to allocate buffer, return NULL pointer to indicate the failure */
+            break;
+        }
+
+        /* Copy key material into RAM buffer. This step can be used to load the key from encrypted storage */
+        memcpy(app_verification_key_ptr, app_verification_key, sizeof(*app_verification_key_ptr));
+    } while (0);
+
+    UTILS_EXIT_CRITICAL_SECTION();
+
+    return app_verification_key_ptr;
+}
+
+/*----------------------------------------------------------------------------*/
+
+void aim_release_application_verification_key(void)
+{
+    /**
+     * @note This is a sample implementation showing post-verification actions
+     *       to clean up the key material from RAM to prevent its use outside
+     *       the firmware image validation process.
+     */
+
+    UTILS_ENTER_CRITICAL_SECTION();
+
+    do
+    {
+        if (app_verification_key_ptr != NULL)
+        {
+            /* Clear RAM buffer to protect from Use-After-Free attacks */
+            memset(app_verification_key_ptr, 0x00u, sizeof(*app_verification_key_ptr));
+
+            /* Release the buffer holding the key */
+            free(app_verification_key_ptr);
+
+            /* Invalidate the pointer */
+            app_verification_key_ptr = NULL;
+        }
+    } while (0);
+
+    UTILS_EXIT_CRITICAL_SECTION();
+}

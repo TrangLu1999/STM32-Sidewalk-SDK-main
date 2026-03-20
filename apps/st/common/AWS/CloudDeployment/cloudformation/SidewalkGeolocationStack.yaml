@@ -1,0 +1,518 @@
+#
+##############################################################################
+# file:    SidewalkGeolocationStack.yaml
+# brief:   Geolocation Demo CloudFormation template
+##############################################################################
+#
+# Copyright (c) 2025 STMicroelectronics.
+# All rights reserved.
+#
+# This software is licensed under terms that can be found in the LICENSE file
+# in the root directory of this software component.
+# If no LICENSE file comes with this software, it is provided AS-IS.
+#
+##############################################################################
+#
+
+AWSTemplateFormatVersion: 2010-09-09
+
+Description:
+  'This template creates SidewalkGeolocation stack. **WARNING** You will
+  be billed for the AWS resources used if you create a stack from this template'
+
+Parameters:
+  SidewalkDemoName:
+    Type: String
+    Default: SidewalkGeolocation
+  SidewalkGeolocationUplinkLambdaNamePostfix:
+    Type: String
+    Default: UplinkLambda
+  SidewalkGeolocationUplinkLambdaSrc:
+    Type: String
+  SidewalkGeolocationTemplateS3Bucket:
+    Type: String
+  SidewalkGeolocationMqttRootTopic:
+    Type: String
+  SidewalkGeolocationDestinationName:
+    Type: String
+  SidewalkGeolocationDestinationRoleName:
+    Type: String
+  SidewalkGeolocationDestinationAlreadyExists:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Default: false
+  SidewalkPositioningDestinationName:
+    Type: String
+  SidewalkPositioningDestinationRoleName:
+    Type: String
+  SidewalkPositioningDestinationAlreadyExists:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Default: false
+Conditions:
+  ShouldCreateGeolocationDestination: !Equals
+    - !Ref SidewalkGeolocationDestinationAlreadyExists
+    - false
+  ShouldCreatePositioningDestination: !Equals
+    - !Ref SidewalkPositioningDestinationAlreadyExists
+    - false
+
+Resources:
+  # ---------------------------
+  # DynamoDB table to perform uplink fragments assembly
+  # ---------------------------
+  DynamoDBTable00SidewalkGeolocationUplinkFragments:
+    Type: "AWS::DynamoDB::Table"
+    UpdateReplacePolicy: "Delete"
+    DeletionPolicy: "Delete"
+    Properties:
+      TableName:
+        !Join
+        - ''
+        - - !Ref SidewalkDemoName
+          - 'UplinkFragments'
+      KeySchema:
+        - KeyType: "HASH"
+          AttributeName: "uplink_id"
+        - KeyType: "RANGE"
+          AttributeName: "fragment_idx"
+      AttributeDefinitions:
+        - AttributeType: "N"
+          AttributeName: "fragment_idx"
+        - AttributeType: "S"
+          AttributeName: "uplink_id"
+      TimeToLiveSpecification:
+        Enabled: true
+        AttributeName: "expiry"
+      DeletionProtectionEnabled: false
+      TableClass: "STANDARD"
+      BillingMode: "PROVISIONED"
+      ProvisionedThroughput:
+        WriteCapacityUnits: 2
+        ReadCapacityUnits: 2
+      WarmThroughput:
+        ReadUnitsPerSecond: 2
+        WriteUnitsPerSecond: 2
+      SSESpecification:
+        SSEEnabled: false
+      ContributorInsightsSpecification:
+        Enabled: false
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: false
+
+  # -------------------------
+  # Lambda related resources
+  # -------------------------
+
+  # Uplink Lambda's execution role
+  IAMRole00SidewalkGeolocationUplinkLambdaExecutionRole:
+    Type: "AWS::IAM::Role"
+    UpdateReplacePolicy: "Delete"
+    DeletionPolicy: "Delete"
+    Properties:
+      RoleName:
+        !Join
+        - ''
+        - - !Ref SidewalkDemoName
+          - !Ref SidewalkGeolocationUplinkLambdaNamePostfix
+          - 'ExecutionRole'
+      Path: "/service-role/"
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action: "sts:AssumeRole"
+            Effect: "Allow"
+            Principal:
+              Service: "lambda.amazonaws.com"
+
+  # Role-based Lambda policy
+  IAMManagedPolicy00SidewalkGeolocationUplinkLambdaExecutionRolePolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    DependsOn:
+      - IAMRole00SidewalkGeolocationUplinkLambdaExecutionRole
+    UpdateReplacePolicy: "Delete"
+    DeletionPolicy: "Delete"
+    Properties:
+      ManagedPolicyName:
+        !Join
+        - ''
+        - - !Ref SidewalkDemoName
+          - !Ref SidewalkGeolocationUplinkLambdaNamePostfix
+          - 'ExecutionRolePolicy'
+      Path: "/service-role/"
+      Description: ""
+      Groups: []
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Resource:
+          - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+          Action: "logs:CreateLogGroup"
+          Effect: "Allow"
+        - Resource:
+          - !Join
+            - ''
+            - - 'arn:aws:logs:'
+              - !Ref AWS::Region
+              - ':'
+              - !Ref AWS::AccountId
+              - ':log-group:/aws/lambda/'
+              - !Ref SidewalkDemoName
+              - !Ref SidewalkGeolocationUplinkLambdaNamePostfix
+              - ':*'
+          Action:
+          - "logs:CreateLogStream"
+          - "logs:PutLogEvents"
+          Effect: "Allow"
+        - Resource:
+          - !Join
+            - ''
+            - - 'arn:aws:iot:'
+              - !Ref AWS::Region
+              - ':'
+              - !Ref AWS::AccountId
+              - ':topic/'
+              - !Ref SidewalkGeolocationMqttRootTopic
+              - '/*'
+          Action:
+          - "iot:Publish"
+          Effect: "Allow"
+        - Resource:
+          - !GetAtt DynamoDBTable00SidewalkGeolocationUplinkFragments.Arn
+          Action:
+          - "dynamodb:DeleteItem"
+          - "dynamodb:UpdateItem"
+          - "dynamodb:PutItem"
+          - "dynamodb:Query"
+          - "dynamodb:GetItem"
+          Effect: "Allow"
+        - Resource: "*"
+          Action:
+          - "iotwireless:GetPositionEstimate"
+          Effect: "Allow"
+        - Resource:
+          - !Join
+            - ''
+            - - 'arn:aws:iotwireless:'
+              - !Ref AWS::Region
+              - ':'
+              - !Ref AWS::AccountId
+              - ':WirelessDevice/*'
+          Action:
+          - "iotwireless:UpdateResourcePosition"
+          Effect: "Allow"
+      Roles:
+      - Ref: "IAMRole00SidewalkGeolocationUplinkLambdaExecutionRole"
+      Users: []
+
+  # Location resolver Lambda function
+  LambdaFunction00SidewalkGeolocationUplinkLambda:
+    Type: "AWS::Lambda::Function"
+    DependsOn:
+      - IAMRole00SidewalkGeolocationUplinkLambdaExecutionRole
+    UpdateReplacePolicy: "Delete"
+    DeletionPolicy: "Delete"
+    Properties:
+      FunctionName:
+        !Join
+        - ''
+        - - !Ref SidewalkDemoName
+          - !Ref SidewalkGeolocationUplinkLambdaNamePostfix
+      Description: "Receives uplinks from end nodes, assembles fragments, and runs location resolvers to obtain device location from the supplied payload (WiFi and GNSS scan results)"
+      Runtime: "python3.13"
+      LoggingConfig:
+        LogFormat: "Text"
+        LogGroup:
+          !Join
+            - ''
+            - - '/aws/lambda/'
+              - !Ref SidewalkDemoName
+              - !Ref SidewalkGeolocationUplinkLambdaNamePostfix
+      Environment:
+        Variables:
+          GEOLOCATION_MQTT_TOPIC_BASE: !Ref SidewalkGeolocationMqttRootTopic
+          UPLINK_FRAGMENTS_DYNAMODB_TABLE:
+            # Can't use !GetAtt DynamoDBTable00SidewalkGeolocationUplinkFragments.TableName here, compose table name from inputs instead
+            !Join
+            - ''
+            - - !Ref SidewalkDemoName
+              - 'UplinkFragments'
+          UPLINK_FRAGMENT_DYNAMODB_TTL: "1800"
+      TracingConfig:
+        Mode: "PassThrough"
+      Timeout: 10
+      RuntimeManagementConfig:
+        UpdateRuntimeOn: "Auto"
+      Handler: "geolocation_uplink_lambda_handler.lambda_handler"
+      Code:
+        S3Bucket: !Ref SidewalkGeolocationTemplateS3Bucket
+        S3Key: !Ref SidewalkGeolocationUplinkLambdaSrc
+      Role:
+        !GetAtt IAMRole00SidewalkGeolocationUplinkLambdaExecutionRole.Arn
+      FileSystemConfigs: [ ]
+      PackageType: "Zip"
+      RecursiveLoop: "Terminate"
+      MemorySize: 128
+      EphemeralStorage:
+        Size: 512
+      Architectures:
+        - "arm64"
+
+  # Uplink Lambda permissions
+  LambdaPermission00functionSidewalkGeolocationUplinkLambda:
+    Type: "AWS::Lambda::Permission"
+    DependsOn:
+      - LambdaFunction00SidewalkGeolocationUplinkLambda
+      - IoTTopicRule00SidewalkGeolocationUplinkRule
+    UpdateReplacePolicy: "Delete"
+    DeletionPolicy: "Delete"
+    Properties:
+      FunctionName:
+        !GetAtt LambdaFunction00SidewalkGeolocationUplinkLambda.Arn
+      Action: "lambda:InvokeFunction"
+      SourceArn:
+        !GetAtt IoTTopicRule00SidewalkGeolocationUplinkRule.Arn
+      Principal: "iot.amazonaws.com"
+
+  # -------------------------
+  # IoT Core rules
+  # -------------------------
+
+  # Geolocation uplink rule
+  IoTTopicRule00SidewalkGeolocationUplinkRule:
+    Type: "AWS::IoT::TopicRule"
+    DependsOn:
+      - LambdaFunction00SidewalkGeolocationUplinkLambda
+    UpdateReplacePolicy: "Delete"
+    DeletionPolicy: "Delete"
+    Properties:
+      RuleName:
+        !Join
+        - ''
+        - - !Ref SidewalkDemoName
+          - 'UplinkRule'
+      TopicRulePayload:
+        RuleDisabled: false
+        Description: ""
+        AwsIotSqlVersion: "2016-03-23"
+        Actions:
+          - Lambda:
+              FunctionArn:
+                !GetAtt LambdaFunction00SidewalkGeolocationUplinkLambda.Arn
+        Sql: "SELECT * AS uplink"
+
+  # IoT Wireless resolved position publishing rule
+  IoTTopicRule00SidewalkResolvedPositionRule:
+    Type: "AWS::IoT::TopicRule"
+    DependsOn:
+      - IAMRole00AWSIotWirelessDestinationSidewalkPositioningDestinationRole
+    UpdateReplacePolicy: "Delete"
+    DeletionPolicy: "Delete"
+    Properties:
+      RuleName:
+        !Join
+        - ''
+        - - !Ref SidewalkDemoName
+          - 'ResolvedPositionRule'
+      TopicRulePayload:
+        RuleDisabled: false
+        Description: ""
+        AwsIotSqlVersion: "2016-03-23"
+        Actions:
+          - Republish:
+              Topic:
+                !Join
+                - ''
+                - - !Ref SidewalkGeolocationMqttRootTopic
+                  - '/${WirelessDeviceId}/positioning'
+              Qos: 1
+              RoleArn: !GetAtt IAMRole00AWSIotWirelessDestinationSidewalkPositioningDestinationRole.Arn
+        Sql: "SELECT *"
+
+  # -------------------------
+  # IoT Core Geolocation Destination
+  # -------------------------
+
+  # Destination role
+  IAMRole00AWSIotWirelessDestinationSidewalkGeolocationDestinationRole:
+    Type: "AWS::IAM::Role"
+    Condition: ShouldCreateGeolocationDestination
+    UpdateReplacePolicy: "Retain"
+    DeletionPolicy: "Delete"
+    Properties:
+      RoleName: !Ref SidewalkGeolocationDestinationRoleName
+      Path: "/service-role/"
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action: "sts:AssumeRole"
+            Effect: "Allow"
+            Principal:
+              Service: "iotwireless.amazonaws.com"
+
+  # Destination role policy
+  IAMManagedPolicy00policyserviceroleSidewalkGeolocationDestinationPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Condition: ShouldCreateGeolocationDestination
+    DependsOn:
+      - IoTTopicRule00SidewalkGeolocationUplinkRule
+      - IAMRole00AWSIotWirelessDestinationSidewalkGeolocationDestinationRole
+    UpdateReplacePolicy: "Retain"
+    DeletionPolicy: "Delete"
+    Properties:
+      ManagedPolicyName:
+        !Join
+        - ''
+        - - !Ref SidewalkDemoName
+          - 'DestinationRolePolicy'
+      Path: "/service-role/"
+      Description: ""
+      Groups: [ ]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Resource:
+              !Join
+              - ''
+              - - 'arn:aws:iot:'
+                - !Ref AWS::Region
+                - ':'
+                - !Ref AWS::AccountId
+                - ':topic/$aws/rules/'
+                - !Ref SidewalkDemoName
+                - 'UplinkRule'
+            Action:
+              - "iot:Publish"
+            Effect: "Allow"
+          - Resource: "*"
+            Action:
+              - "iot:DescribeEndpoint"
+            Effect: "Allow"
+      Roles:
+        - Ref: "IAMRole00AWSIotWirelessDestinationSidewalkGeolocationDestinationRole"
+      Users: [ ]
+
+  # Geolocation uplinks destination
+  IoTWirelessDestination00GeolocationAppDestination:
+    Type: "AWS::IoTWireless::Destination"
+    Condition: ShouldCreateGeolocationDestination
+    DependsOn:
+      - IoTTopicRule00SidewalkGeolocationUplinkRule
+      - IAMRole00AWSIotWirelessDestinationSidewalkGeolocationDestinationRole
+    UpdateReplacePolicy: "Retain"
+    DeletionPolicy: "Delete"
+    Properties:
+      Name: !Ref SidewalkGeolocationDestinationName
+      Description: "Destination for geolocation uplink messages from Sidewalk devices"
+      Expression:
+        !Join
+        - ''
+        - - !Ref SidewalkDemoName
+          - 'UplinkRule'
+      ExpressionType: "RuleName"
+      RoleArn:  !GetAtt IAMRole00AWSIotWirelessDestinationSidewalkGeolocationDestinationRole.Arn
+
+  # -------------------------
+  # IoT Core Positioning Destination
+  # -------------------------
+
+  # Destination role
+  IAMRole00AWSIotWirelessDestinationSidewalkPositioningDestinationRole:
+    Type: "AWS::IAM::Role"
+    Condition: ShouldCreatePositioningDestination
+    UpdateReplacePolicy: "Retain"
+    DeletionPolicy: "Delete"
+    Properties:
+      RoleName: !Ref SidewalkPositioningDestinationRoleName
+      Path: "/service-role/"
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action: "sts:AssumeRole"
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "iot.amazonaws.com"
+                - "iotwireless.amazonaws.com"
+
+  # Destination role policy
+  IAMManagedPolicy00policyserviceroleSidewalkPositioningDestinationPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Condition: ShouldCreatePositioningDestination
+    DependsOn:
+      - IoTTopicRule00SidewalkResolvedPositionRule
+      - IAMRole00AWSIotWirelessDestinationSidewalkPositioningDestinationRole
+    UpdateReplacePolicy: "Retain"
+    DeletionPolicy: "Delete"
+    Properties:
+      ManagedPolicyName:
+        !Join
+        - ''
+        - - !Ref SidewalkDemoName
+          - 'PositioningDestinationRolePolicy'
+      Path: "/service-role/"
+      Description: ""
+      Groups: [ ]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Resource:
+            - !Join
+              - ''
+              - - 'arn:aws:iot:'
+                - !Ref AWS::Region
+                - ':'
+                - !Ref AWS::AccountId
+                - ':topic/'
+                - !Ref SidewalkGeolocationMqttRootTopic
+                - '/*/positioning'
+            Action:
+            - "iot:Publish"
+            Effect: "Allow"
+          - Resource:
+              !Join
+              - ''
+              - - 'arn:aws:iot:'
+                - !Ref AWS::Region
+                - ':'
+                - !Ref AWS::AccountId
+                - ':topic/$aws/rules/'
+                - !Ref SidewalkDemoName
+                - 'ResolvedPositionRule'
+            Action:
+              - "iot:Publish"
+            Effect: "Allow"
+          - Resource: "*"
+            Action:
+              - "iot:DescribeEndpoint"
+            Effect: "Allow"
+      Roles:
+        - Ref: "IAMRole00AWSIotWirelessDestinationSidewalkPositioningDestinationRole"
+      Users: [ ]
+
+  # IoT Wireless Positioning output destination
+  IoTWirelessDestination00GeolocationAppPositioningDestination:
+    Type: "AWS::IoTWireless::Destination"
+    Condition: ShouldCreatePositioningDestination
+    DependsOn:
+      - IoTTopicRule00SidewalkResolvedPositionRule
+      - IAMRole00AWSIotWirelessDestinationSidewalkPositioningDestinationRole
+    UpdateReplacePolicy: "Retain"
+    DeletionPolicy: "Delete"
+    Properties:
+      Name: !Ref SidewalkPositioningDestinationName
+      Description: "Destination for publishing location resolved via IoT Wireless Positioning"
+      Expression:
+        !Join
+        - ''
+        - - !Ref SidewalkDemoName
+          - 'ResolvedPositionRule'
+      ExpressionType: "RuleName"
+      RoleArn:  !GetAtt IAMRole00AWSIotWirelessDestinationSidewalkPositioningDestinationRole.Arn

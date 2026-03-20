@@ -1,0 +1,3 @@
+*.pem
+*.key
+application_verification_key.c

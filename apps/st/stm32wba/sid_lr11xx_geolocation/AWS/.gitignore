@@ -1,0 +1,5 @@
+**/manufacturing_data
+**/.venv
+**/venv
+**/geolocation-app-env
+deployment_outputs.yaml
