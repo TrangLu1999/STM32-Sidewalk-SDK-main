@@ -29,7 +29,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "main.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -70,6 +70,16 @@ DMA_QListTypeDef List_GPDMA1_Channel5;
 DMA_HandleTypeDef handle_GPDMA1_Channel5;
 DMA_HandleTypeDef handle_GPDMA1_Channel4;
 UART_HandleTypeDef huart1;
+/* Sensor UART (G0B1 communication) DMA RX channel */
+UART_HandleTypeDef huart2;
+DMA_NodeTypeDef Node_GPDMA1_Channel3;
+DMA_QListTypeDef List_GPDMA1_Channel3;
+DMA_HandleTypeDef handle_GPDMA1_Channel3;
+LL_DMA_InitTypeDef DMA_InitStruct = {0};
+uint8_t aUSART2RxBuffer[20];
+uint8_t aUSART2RxBuffer_buff1[20];
+uint8_t ubUSART2NbDataToReceive = sizeof(aUSART2RxBuffer);
+__IO uint8_t ubUSART2ReceptionComplete = 0;
 
 /* USER CODE BEGIN PV */
 
@@ -132,7 +142,11 @@ int main(void)
   MX_USART1_UART_Init();
 #endif /* CFG_LOG_SUPPORTED */
   /* USER CODE BEGIN 2 */
-
+  MX_USART2_UART_Init();
+  /* Enable DMA RX Interrupt */
+  LL_USART_EnableDMAReq_RX(USART2);
+  /* Enable DMA Channel Rx */
+  LL_DMA_EnableChannel(GPDMA1, LL_DMA_CHANNEL_3);
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -146,7 +160,7 @@ int main(void)
   MX_APPE_Init(NULL);
 
   /* Start scheduler */
-  osKernelStart();
+  osKernelStart();//test
 
   /* We should never get here as control is now taken by the scheduler */
 
@@ -155,8 +169,16 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+	  /* USER CODE BEGIN 3 */
+    /* USER CODE END WHILE */
+    if(ubUSART2ReceptionComplete)
+    {
+      ubUSART2ReceptionComplete = 0;
 
-    /* USER CODE BEGIN 3 */
+      /* Reconfigure and re-enable the DMA channel for the next reception */
+      MX_USART2_UART_ReInit();
+      LL_DMA_EnableChannel(GPDMA1, LL_DMA_CHANNEL_3);
+    }
   }
   /* USER CODE END 3 */
 }
@@ -294,12 +316,11 @@ void MX_GPDMA1_Init(void)
   HAL_NVIC_EnableIRQ(GPDMA1_Channel4_IRQn);
   HAL_NVIC_SetPriority(GPDMA1_Channel5_IRQn, 7, 0);
   HAL_NVIC_EnableIRQ(GPDMA1_Channel5_IRQn);
+  HAL_NVIC_SetPriority(GPDMA1_Channel3_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(GPDMA1_Channel3_IRQn);
   /* USER CODE BEGIN GPDMA1_Init 1 */
 
   /* USER CODE END GPDMA1_Init 1 */
-  /* USER CODE BEGIN GPDMA1_Init 2 */
-
-  /* USER CODE END GPDMA1_Init 2 */
 
 }
 
@@ -670,6 +691,105 @@ void MX_USART1_UART_Init(void)
 
 }
 #endif /* CFG_LOG_SUPPORTED */
+
+/**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart2.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_EnableFifoMode(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+  /* Enable the Peripheral */
+  __HAL_UART_ENABLE(&huart2);
+  /* USER CODE END USART2_Init 2 */
+  //uart_io_uart2_init();
+}
+
+/**
+  * @brief  Function called from GPDMA1 IRQ Handler when Rx transfer is completed (USART1)
+  * @param  None
+  * @retval None
+  */
+void USART1_GPDMA1_ReceiveComplete_Callback(void)
+{
+  /* DMA Rx transfer completed */
+  ubUSART2ReceptionComplete = 1;
+  LL_DMA_DisableChannel(GPDMA1, LL_DMA_CHANNEL_3);
+}
+
+static void MX_USART2_UART_ReInit(void)
+{
+  /* Disable DMA channel before reconfiguring */
+  LL_DMA_DisableChannel(GPDMA1, LL_DMA_CHANNEL_3);
+
+  /* Clear all DMA flags */
+  LL_DMA_ClearFlag_TC(GPDMA1, LL_DMA_CHANNEL_3);
+  LL_DMA_ClearFlag_DTE(GPDMA1, LL_DMA_CHANNEL_3);
+
+  /* Switch between two buffers for ping-pong reception */
+  uint8_t* buf = (uint8_t*) DMA_InitStruct.DestAddress;
+  if(buf == aUSART2RxBuffer)
+  {
+    DMA_InitStruct.DestAddress = (uint32_t)aUSART2RxBuffer_buff1;
+  }
+  else
+  {
+    DMA_InitStruct.DestAddress = (uint32_t)aUSART2RxBuffer;
+  }
+
+  /* Reconfigure source address to USART data register */
+  DMA_InitStruct.SrcAddress = LL_USART_DMA_GetRegAddr(USART2, LL_USART_DMA_REG_DATA_RECEIVE);
+
+  /* Reinitialize DMA with updated configuration */
+  LL_DMA_Init(GPDMA1, LL_DMA_CHANNEL_3, &DMA_InitStruct);
+
+  /* Reset block data length for next transfer */
+  LL_DMA_SetBlkDataLength(GPDMA1, LL_DMA_CHANNEL_3, ubUSART2NbDataToReceive);
+
+  /* Ensure NVIC is properly configured */
+  NVIC_SetPriority(GPDMA1_Channel3_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0, 0));
+  NVIC_EnableIRQ(GPDMA1_Channel3_IRQn);
+
+  /* Re-enable DMA interrupts */
+  LL_DMA_EnableIT_TC(GPDMA1, LL_DMA_CHANNEL_3);
+  LL_DMA_EnableIT_DTE(GPDMA1, LL_DMA_CHANNEL_3);
+}
 
 /**
   * @brief GPIO Initialization Function

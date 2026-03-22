@@ -38,6 +38,8 @@ extern "C" {
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "app_900_config.h"
+#include "stm32wbaxx_ll_usart.h"
+#include "stm32wbaxx_ll_dma.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -74,7 +76,13 @@ void MX_SPI2_Init(void);
 #endif /* STM32WBAxx */
 void MX_LPTIM1_Init(void);
 void MX_GPDMA1_Init(void);
-
+void MX_USART2_UART_Init(void);
+void USART1_GPDMA1_ReceiveComplete_Callback(void);
+static void MX_USART2_UART_ReInit(void);
+extern LL_DMA_InitTypeDef DMA_InitStruct;
+extern uint8_t aUSART2RxBuffer[20];
+extern uint8_t aUSART2RxBuffer_buff1[20];
+extern uint8_t ubUSART2NbDataToReceive;
 /* USER CODE BEGIN EFP */
 
 /* USER CODE END EFP */

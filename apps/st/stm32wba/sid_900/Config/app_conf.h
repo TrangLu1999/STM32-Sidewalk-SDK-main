@@ -466,7 +466,9 @@ extern UART_HandleTypeDef            huart1;
 #endif /* CFG_LPM_LEVEL */
 
 /* USER CODE BEGIN Defines_2 */
-
+/* Sensor UART (G0B1 communication) */
+extern UART_HandleTypeDef            huart2;
+#define SENSOR_UART_HANDLER          huart2
 /* USER CODE END Defines_2 */
 
 #endif /*APP_CONF_H */

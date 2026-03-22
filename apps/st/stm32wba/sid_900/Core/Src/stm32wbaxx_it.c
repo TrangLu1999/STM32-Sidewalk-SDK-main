@@ -1,4 +1,5 @@
 /* USER CODE BEGIN Header */
+//test
 /**
   ******************************************************************************
   * @file    stm32wbaxx_it.c
@@ -80,6 +81,10 @@ extern DMA_HandleTypeDef handle_GPDMA1_Channel2;
 extern DMA_HandleTypeDef handle_GPDMA1_Channel5;
 extern DMA_HandleTypeDef handle_GPDMA1_Channel4;
 extern UART_HandleTypeDef huart1;
+
+/* Log UART Rx and Tx channels */
+extern DMA_HandleTypeDef handle_GPDMA1_Channel3;
+extern UART_HandleTypeDef huart2;
 
 #if defined(STM32WBA5x)
 extern SPI_HandleTypeDef hspi1;
@@ -572,6 +577,65 @@ void USART1_IRQHandler(void)
 
   /* USER CODE END USART1_IRQn 1 */
 }
+
+/**
+  * @brief This function handles GPDMA1 Channel 3 global interrupt.
+  */
+void GPDMA1_Channel3_IRQHandler(void)
+{
+  /* USER CODE BEGIN GPDMA1_Channel3_IRQn 0 */
+  /* Check Transfer Complete (TC) flag for USART2 RX DMA */
+  if (LL_DMA_IsActiveFlag_TC(GPDMA1, LL_DMA_CHANNEL_3))
+  {
+    /* Clear the transfer complete flag */
+    LL_DMA_ClearFlag_TC(GPDMA1, LL_DMA_CHANNEL_3);
+
+    /* Call function Reception complete Callback (USART2 RX via DMA Channel 3) */
+    USART1_GPDMA1_ReceiveComplete_Callback();
+  }
+  /* Check Data Transfer Error (DTE) flag */
+  if (LL_DMA_IsActiveFlag_DTE(GPDMA1, LL_DMA_CHANNEL_3))
+  {
+    /* Clear the transfer error flag */
+    LL_DMA_ClearFlag_DTE(GPDMA1, LL_DMA_CHANNEL_3);
+
+    /* Call Error function */
+    SID_PAL_LOG_ERROR("GPDMA1 Channel 3 Transfer Error");
+    //USART_TransferError_Callback();
+  }
+  /* USER CODE END GPDMA1_Channel3_IRQn 0 */
+  /* USER CODE BEGIN GPDMA1_Channel3_IRQn 1 */
+
+  /* USER CODE END GPDMA1_Channel3_IRQn 1 */
+}
+
+/**
+  * @brief This function handles USART2 global interrupt.
+  */
+void USART2_IRQHandler(void)
+{
+  /* USER CODE BEGIN USART2_IRQn 0 */
+  /* Check RXNE flag value in ISR register */
+  if (LL_USART_IsActiveFlag_RXNE(USART2) && LL_USART_IsEnabledIT_RXNE(USART2))
+  {
+    /* RXNE flag will be cleared by reading of RDR register (done in call) */
+    /* Call function in charge of handling Character reception */
+    //USART_CharReception_Callback();
+
+    /* Clear the RXNE interrupt flag */
+    LL_USART_ClearFlag_IDLE(USART2);
+  }
+  else
+  {
+    /* Call Error function */
+    //Error_Callback();
+  }
+  /* USER CODE END USART2_IRQn 0 */
+  /* USER CODE BEGIN USART2_IRQn 1 */
+
+  /* USER CODE END USART2_IRQn 1 */
+}
+
 
 /**
   * @brief This function handles 2.4GHz RADIO global interrupt.

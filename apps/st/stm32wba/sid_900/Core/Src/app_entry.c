@@ -727,7 +727,7 @@ static void Led_Init(void)
 #endif /* NUCLEO_WBA65_BOARD */
 #if defined(NUCLEO_WBA52_BOARD) || defined(NUCLEO_WBA55_BOARD) || defined(NUCLEO_WBA65_BOARD)
   BSP_LED_Init(LED_GREEN);
-  BSP_LED_Init(LED_RED);
+  //BSP_LED_Init(LED_RED);//disable cause config with pb8 rx uart2
 
   BSP_LED_On(LED_GREEN);
 #else
