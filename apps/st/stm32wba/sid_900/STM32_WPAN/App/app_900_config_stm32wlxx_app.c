@@ -205,9 +205,10 @@ static const stm32wlxx_app_radio_device_config_t radio_stm32wlxx_cfg = {
         .radio_irq_prio_low     = RADIO_INTR_PRIO_LOW,  /* Keep aligned with BLE config. The priority should be low enough to allow RTOS API calls, but we still want to process radio events ASAP */
 #if STM32WLxx_RADIO_CFG_USE_STATUS_LED
 #  if defined NUCLEO_WBA52_BOARD || defined NUCLEO_WBA55_BOARD
-        .tx_led                 = GPIO_PORT_PIN_TO_NUM(GPIOB, GPIO_PIN_8),
+        /* PB8 is used by UART2_RX - disable radio status LED to avoid pin conflict */
+        .tx_led                 = HALO_GPIO_NOT_CONNECTED,
         .tx_led_on_gpio_state   = 0u,
-        .rx_led                 = GPIO_PORT_PIN_TO_NUM(GPIOB, GPIO_PIN_8),
+        .rx_led                 = HALO_GPIO_NOT_CONNECTED,
         .rx_led_on_gpio_state   = 0u,
 #  elif defined NUCLEO_WBA65_BOARD
         .tx_led                 = GPIO_PORT_PIN_TO_NUM(GPIOD, GPIO_PIN_8),

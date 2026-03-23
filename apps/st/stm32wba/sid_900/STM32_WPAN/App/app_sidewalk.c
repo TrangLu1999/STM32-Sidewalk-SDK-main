@@ -46,6 +46,7 @@
 #  include "led_indication.h"
 #endif /* CFG_LED_SUPPORTED */
 #include "sid_pal_gpio_ext_ifc.h"
+#include <stm32wlxx_app_radio_ext_ifc.h>
 #if defined(NUCLEO_WBA52_BOARD) || defined(NUCLEO_WBA55_BOARD) || defined(NUCLEO_WBA65_BOARD)
 #  include "stm32wbaxx_nucleo.h"
 #endif
@@ -94,6 +95,12 @@
 
 #define OS_MS_TO_TICKS( xTimeInMs )                 ( ( uint32_t ) ( ( ( uint32_t ) ( xTimeInMs ) * ( uint32_t ) osKernelGetTickFreq() ) / ( uint32_t ) 1000U ) )
 
+/* UART2 Command Protocol from STM32G0B1 */
+#define UART2_CMD_INIT_LORA    0x01
+#define UART2_CMD_SEND_DATA    0x02
+#define UART2_CMD_STOP_LINK    0x03
+#define UART2_CMD_GET_STATUS   0x04
+
 /* Private typedef -----------------------------------------------------------*/
 
 enum event_type
@@ -104,6 +111,7 @@ enum event_type
     EVENT_TYPE_TOGGLE_LINK,
     EVENT_TYPE_SIDEWALK,
     EVENT_TYPE_SEND_HELLO,
+    EVENT_TYPE_UART2_DATA,
     EVENT_FACTORY_RESET,
     EVENT_TYPE_SET_DEVICE_PROFILE,
     EVENT_TYPE_REGISTRATION_COMPLETED,
@@ -166,6 +174,10 @@ static osThreadId_t demo_counter_task;
 
 /* Indicates if Sidewalk registration process is pending */
 static bool registration_pending = false;
+
+/* UART2 data buffer for forwarding to Sidewalk */
+static uint8_t uart2_tx_buffer[20];
+static uint8_t uart2_tx_len;
 
 /* Private constants ---------------------------------------------------------*/
 
@@ -436,6 +448,71 @@ static void send_ping(app_context_t *app_context)
     }
 }
 
+static void send_uart2_data(app_context_t *app_context)
+{
+    (void)app_context;
+    SID_PAL_LOG_INFO("Sending UART2 data via UDT (%d bytes)", uart2_tx_len);
+    SID_PAL_HEXDUMP(SID_PAL_LOG_SEVERITY_INFO, uart2_tx_buffer, uart2_tx_len);
+
+    sid_error_t ret = sid_pal_radio_stm32wlxx_send_user_data(uart2_tx_buffer, uart2_tx_len, 0);
+    if (ret != SID_ERROR_NONE)
+    {
+        SID_PAL_LOG_ERROR("UDT send failed, err:%d", (int)ret);
+    }
+    else
+    {
+        SID_PAL_LOG_INFO("UDT data sent to WL55");
+    }
+}
+
+static void parse_uart2_command(app_context_t *app_context)
+{
+    if (uart2_tx_len < 1) return;
+
+    uint8_t cmd = uart2_tx_buffer[0];
+    uint8_t payload_len = (uart2_tx_len > 1) ? uart2_tx_buffer[1] : 0;
+
+    SID_PAL_LOG_INFO("UART2 CMD: 0x%02X, payload_len: %d", cmd, payload_len);
+
+    switch (cmd)
+    {
+        case UART2_CMD_INIT_LORA:
+            SID_PAL_LOG_INFO("CMD: INIT_LORA received from G0B1");
+            if (app_context->sidewalk_handle == NULL)
+            {
+                queue_event(g_event_queue, EVENT_TYPE_COLD_START_LINK);
+            }
+            else
+            {
+                SID_PAL_LOG_WARNING("Sidewalk already initialized, ignoring INIT_LORA");
+            }
+            break;
+
+        case UART2_CMD_SEND_DATA:
+            SID_PAL_LOG_INFO("CMD: SEND_DATA (%d bytes) from G0B1", payload_len);
+            /* Shift payload: skip cmd + len bytes */
+            memmove(uart2_tx_buffer, &uart2_tx_buffer[2], payload_len);
+            uart2_tx_len = payload_len;
+            send_uart2_data(app_context);
+            break;
+
+        case UART2_CMD_STOP_LINK:
+            SID_PAL_LOG_INFO("CMD: STOP_LINK received from G0B1");
+            queue_event(g_event_queue, EVENT_TYPE_STOP_LINK);
+            break;
+
+        case UART2_CMD_GET_STATUS:
+            SID_PAL_LOG_INFO("CMD: GET_STATUS - state=%d, handle=%s",
+                app_context->state,
+                (app_context->sidewalk_handle != NULL) ? "active" : "null");
+            break;
+
+        default:
+            SID_PAL_LOG_ERROR("UART2: Unknown command 0x%02X", cmd);
+            break;
+    }
+}
+
 /*----------------------------------------------------------------------------*/
 
 static void factory_reset(app_context_t * const context)
@@ -564,9 +641,9 @@ static sid_error_t init_and_start_link(app_context_t * const context, struct sid
         /* For FSK-only mode start with FSK mode and handle the device registration over the FSK link */
         config->link_mask = SID_COMM_LINK_TYPE;
 #else
-        /* Initialize Sidewalk in BLE or FSK mode to check device registration status */
-        /* WARNING: starting in LoRa-only mode is not allowed if the device is not registered. Calling sid_init() will always return an error */
-        config->link_mask = SID_REGISTRATION_LINK_TYPE;
+        /* Initialize Sidewalk in BLE + LoRa mode to enable both registration and SubGHz radio */
+        /* Note: LoRa link added to force STM32WL55 radio PAL init for UDT support */
+        config->link_mask = SID_REGISTRATION_LINK_TYPE | SID_COMM_LINK_TYPE;
 #endif /* SID_FSK_ONLY_LINK */
         ret = sid_init(config, &sid_handle);
         if (ret != SID_ERROR_NONE)
@@ -781,7 +858,7 @@ static void button1_irq_handler(uint32_t pin, void * callback_arg)
 /*----------------------------------------------------------------------------*/
 
 #  if (defined(STM32WBA5x) && !defined(SID_RADIO_PLATFORM_LR11XX) && !defined(SID_RADIO_PLATFORM_SX126X)) || !defined(STM32WBA5x) /* Semtech shields use the same GPIO pin for BUSY signal */
-static void button2_irq_handler(uint32_t pin, void * callback_arg)
+static void button2_irq_handler(uint32_t pin, void * callback_arg)//
 {
     (void)pin;
     (void)callback_arg;
@@ -932,7 +1009,7 @@ static void button3_wakeup_handler(uint32_t pin, void * callback_arg)
 
 /*----------------------------------------------------------------------------*/
 
-static void buttons_init(void)
+static void buttons_init(void)//
 {
     sid_error_t ret_code;
 
@@ -1097,6 +1174,11 @@ static void sidewalk_stack_task_entry(void *context)
                     {
                         SID_PAL_LOG_DEBUG("Sidewalk not ready!");;
                     }
+                    break;
+
+                case EVENT_TYPE_UART2_DATA:
+                    SID_PAL_LOG_INFO("EVENT_TYPE_UART2_DATA");
+                    parse_uart2_command(app_context);
                     break;
 
                 case EVENT_TYPE_SET_DEVICE_PROFILE:
@@ -1436,6 +1518,14 @@ static const char * sid_subghz_profile_code_to_str(enum sid_device_profile_id co
 }
 #endif /* SID_PAL_LOG_ENABLED */
 
+/* UDT callback - data received from WL55 via SPI */
+static void _on_wl55_user_data(const uint8_t * const data, const uint32_t data_len, void * user_arg)
+{
+    (void)user_arg;
+    SID_PAL_LOG_INFO("UDT from WL55 (%u bytes): %.*s", data_len, data_len, (const char *)data);
+    SID_PAL_HEXDUMP(SID_PAL_LOG_SEVERITY_INFO, data, data_len);
+}
+
 /* Global function definitions -----------------------------------------------*/
 
 void SID_APP_Init(void)
@@ -1484,6 +1574,17 @@ void SID_APP_Init(void)
     {
         SID_PAL_LOG_ERROR("Sidewalk Platform Init err: %d", ret_code);
         SID_PAL_ASSERT(0);
+    }
+
+    /* Register UDT callback to receive data from WL55 */
+    ret_code = sid_pal_radio_stm32wlxx_set_user_data_received_cb(_on_wl55_user_data, NULL);
+    if (ret_code != SID_ERROR_NONE)
+    {
+        SID_PAL_LOG_ERROR("Failed to set UDT RX callback, err:%d", (int)ret_code);
+    }
+    else
+    {
+        SID_PAL_LOG_INFO("UDT RX callback registered");
     }
 
 #if CFG_LED_SUPPORTED
@@ -1553,4 +1654,15 @@ void SID_APP_StandbyExit(void)
     /* Restore GPIO and IRQ config for ther buttons */
     buttons_init();
 #endif /* CFG_BUTTON_SUPPORTED */
+}
+
+void app_sidewalk_forward_uart2_data(const uint8_t *data, uint8_t len)
+{
+    if (len > sizeof(uart2_tx_buffer))
+    {
+        len = sizeof(uart2_tx_buffer);
+    }
+    memcpy(uart2_tx_buffer, data, len);
+    uart2_tx_len = len;
+    queue_event(g_event_queue, EVENT_TYPE_UART2_DATA);
 }

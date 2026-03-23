@@ -22,5 +22,6 @@
 /* Global function prototypes ------------------------------------------------*/
 void SID_APP_Init(void);
 void SID_APP_StandbyExit(void);
+void app_sidewalk_forward_uart2_data(const uint8_t *data, uint8_t len);
 
 #endif /*__APP_SIDEWALK_H_ */

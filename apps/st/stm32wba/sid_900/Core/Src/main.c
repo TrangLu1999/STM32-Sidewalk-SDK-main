@@ -30,6 +30,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "main.h"
+#include "app_sidewalk.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -779,10 +780,16 @@ static void MX_USART2_UART_ReInit(void)
   */
 void USART1_GPDMA1_ReceiveComplete_Callback(void)
 {
+  /* Save pointer to the buffer that just completed before ping-pong switch */
+  uint8_t *completed_buf = (uint8_t *)DMA_InitStruct.DestAddress;
+
   /* DMA Rx transfer completed - reinit and re-enable for next reception */
   LL_DMA_DisableChannel(GPDMA1, LL_DMA_CHANNEL_3);
   MX_USART2_UART_ReInit();
   LL_DMA_EnableChannel(GPDMA1, LL_DMA_CHANNEL_3);
+
+  /* Forward received data to Sidewalk for LoRa transmission */
+  app_sidewalk_forward_uart2_data(completed_buf, ubUSART2NbDataToReceive);
 }
 
 /**
