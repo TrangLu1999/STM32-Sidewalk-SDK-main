@@ -97,11 +97,15 @@ extern uint32_t SystemCoreClock;
 
 #define configRUN_TIME_COUNTER_TYPE              size_t
 
-/* Low power mode support */
+/* Low power mode support - disabled for UART2 DMA debugging */
+#if 0 /* TODO: re-enable when low power + UART2 wakeup is configured */
 extern uint32_t freertosPreSuppressTickAndSleepProcessing(uint32_t ulExpectedIdleTimeIn);
 #define configPRE_SUPPRESS_TICKS_AND_SLEEP_PROCESSING(_X_) ((_X_) = freertosPreSuppressTickAndSleepProcessing(_X_))
 #define configUSE_TICKLESS_IDLE                  2
 #define configEXPECTED_IDLE_TIME_BEFORE_SLEEP    2
+#else
+#define configUSE_TICKLESS_IDLE                  0
+#endif
 
 /* Runtime diagnostics */
 #define configCHECK_FOR_STACK_OVERFLOW           2

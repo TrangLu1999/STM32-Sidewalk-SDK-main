@@ -210,8 +210,8 @@
  *   - 0 : Stop mode 1 is used as low power mode.
  *
  ******************************************************************************/
-#define CFG_LPM_LEVEL            (1)
-#define CFG_LPM_STDBY_SUPPORTED  (1)
+#define CFG_LPM_LEVEL            (0)
+#define CFG_LPM_STDBY_SUPPORTED  (0)
 
 /* Defines time to wake up from standby before radio event to meet timings */
 #define CFG_LPM_STDBY_WAKEUP_TIME (1000u)
@@ -351,7 +351,7 @@ extern UART_HandleTypeDef            huart1;
  *   - 2 : Debugger available in low power mode.
  *
  ******************************************************************************/
-#define CFG_DEBUGGER_LEVEL                  (1)
+#define CFG_DEBUGGER_LEVEL                  (2)
 
 /******************************************************************************
  * RealTime GPIO debug module configuration

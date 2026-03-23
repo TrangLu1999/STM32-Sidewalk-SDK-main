@@ -171,14 +171,7 @@ int main(void)
     /* USER CODE END WHILE */
 	  /* USER CODE BEGIN 3 */
     /* USER CODE END WHILE */
-    if(ubUSART2ReceptionComplete)
-    {
-      ubUSART2ReceptionComplete = 0;
-
-      /* Reconfigure and re-enable the DMA channel for the next reception */
-      MX_USART2_UART_ReInit();
-      LL_DMA_EnableChannel(GPDMA1, LL_DMA_CHANNEL_3);
-    }
+    /* UART2 ReInit is now handled in DMA ISR callback */
   }
   /* USER CODE END 3 */
 }
@@ -741,18 +734,6 @@ void MX_USART2_UART_Init(void)
   //uart_io_uart2_init();
 }
 
-/**
-  * @brief  Function called from GPDMA1 IRQ Handler when Rx transfer is completed (USART1)
-  * @param  None
-  * @retval None
-  */
-void USART1_GPDMA1_ReceiveComplete_Callback(void)
-{
-  /* DMA Rx transfer completed */
-  ubUSART2ReceptionComplete = 1;
-  LL_DMA_DisableChannel(GPDMA1, LL_DMA_CHANNEL_3);
-}
-
 static void MX_USART2_UART_ReInit(void)
 {
   /* Disable DMA channel before reconfiguring */
@@ -783,12 +764,25 @@ static void MX_USART2_UART_ReInit(void)
   LL_DMA_SetBlkDataLength(GPDMA1, LL_DMA_CHANNEL_3, ubUSART2NbDataToReceive);
 
   /* Ensure NVIC is properly configured */
-  NVIC_SetPriority(GPDMA1_Channel3_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0, 0));
+  NVIC_SetPriority(GPDMA1_Channel3_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 6, 0));
   NVIC_EnableIRQ(GPDMA1_Channel3_IRQn);
 
   /* Re-enable DMA interrupts */
   LL_DMA_EnableIT_TC(GPDMA1, LL_DMA_CHANNEL_3);
   LL_DMA_EnableIT_DTE(GPDMA1, LL_DMA_CHANNEL_3);
+}
+
+/**
+  * @brief  Function called from GPDMA1 IRQ Handler when Rx transfer is completed (USART2)
+  * @param  None
+  * @retval None
+  */
+void USART1_GPDMA1_ReceiveComplete_Callback(void)
+{
+  /* DMA Rx transfer completed - reinit and re-enable for next reception */
+  LL_DMA_DisableChannel(GPDMA1, LL_DMA_CHANNEL_3);
+  MX_USART2_UART_ReInit();
+  LL_DMA_EnableChannel(GPDMA1, LL_DMA_CHANNEL_3);
 }
 
 /**

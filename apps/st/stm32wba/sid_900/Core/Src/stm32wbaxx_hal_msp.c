@@ -503,7 +503,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
 
 
     /* USART2 interrupt Init */
-    NVIC_SetPriority(USART2_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
+    NVIC_SetPriority(USART2_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),6, 0));
     NVIC_EnableIRQ(USART2_IRQn);
 
     /* USER CODE BEGIN USART2_Init 1 */
