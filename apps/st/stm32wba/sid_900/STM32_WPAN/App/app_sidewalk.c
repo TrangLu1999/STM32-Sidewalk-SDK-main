@@ -101,6 +101,11 @@
 #define UART2_CMD_STOP_LINK    0x03
 #define UART2_CMD_GET_STATUS   0x04
 
+/* UART2 Response codes (WBA55 → G0B1) */
+#define UART2_RSP_OK           0xA0
+#define UART2_RSP_ERR          0xA1
+#define UART2_RSP_BUSY         0xA2
+
 /* Private typedef -----------------------------------------------------------*/
 
 enum event_type
@@ -178,6 +183,9 @@ static bool registration_pending = false;
 /* UART2 data buffer for forwarding to Sidewalk */
 static uint8_t uart2_tx_buffer[20];
 static uint8_t uart2_tx_len;
+
+/* UART2 handle for sending responses to G0B1 */
+extern UART_HandleTypeDef huart2;
 
 /* Private constants ---------------------------------------------------------*/
 
@@ -448,7 +456,7 @@ static void send_ping(app_context_t *app_context)
     }
 }
 
-static void send_uart2_data(app_context_t *app_context)
+static sid_error_t send_uart2_data(app_context_t *app_context)
 {
     (void)app_context;
     SID_PAL_LOG_INFO("Sending UART2 data via UDT (%d bytes)", uart2_tx_len);
@@ -463,6 +471,27 @@ static void send_uart2_data(app_context_t *app_context)
     {
         SID_PAL_LOG_INFO("UDT data sent to WL55");
     }
+    return ret;
+}
+
+/**
+ * @brief Send response to G0B1 via UART2
+ * @param cmd   Original command ID
+ * @param status Response code (UART2_RSP_OK, UART2_RSP_ERR, UART2_RSP_BUSY)
+ * @param data  Optional payload (can be NULL)
+ * @param len   Payload length
+ */
+static void uart2_send_response(uint8_t cmd, uint8_t status, const uint8_t *data, uint8_t len)
+{
+    uint8_t rsp[20] = {0};
+    rsp[0] = status;
+    rsp[1] = cmd;
+    rsp[2] = len;
+    if ((data != NULL) && (len > 0) && (len <= 17))
+    {
+        memcpy(&rsp[3], data, len);
+    }
+    HAL_UART_Transmit(&huart2, rsp, sizeof(rsp), 50);
 }
 
 static void parse_uart2_command(app_context_t *app_context)
@@ -481,34 +510,48 @@ static void parse_uart2_command(app_context_t *app_context)
             if (app_context->sidewalk_handle == NULL)
             {
                 queue_event(g_event_queue, EVENT_TYPE_COLD_START_LINK);
+                uart2_send_response(cmd, UART2_RSP_OK, NULL, 0);
             }
             else
             {
                 SID_PAL_LOG_WARNING("Sidewalk already initialized, ignoring INIT_LORA");
+                uart2_send_response(cmd, UART2_RSP_BUSY, NULL, 0);
             }
             break;
 
         case UART2_CMD_SEND_DATA:
+        {
             SID_PAL_LOG_INFO("CMD: SEND_DATA (%d bytes) from G0B1", payload_len);
             /* Shift payload: skip cmd + len bytes */
             memmove(uart2_tx_buffer, &uart2_tx_buffer[2], payload_len);
             uart2_tx_len = payload_len;
-            send_uart2_data(app_context);
+            sid_error_t send_ret = send_uart2_data(app_context);
+            uart2_send_response(cmd, (send_ret == SID_ERROR_NONE) ? UART2_RSP_OK : UART2_RSP_ERR, NULL, 0);
             break;
+        }
 
         case UART2_CMD_STOP_LINK:
             SID_PAL_LOG_INFO("CMD: STOP_LINK received from G0B1");
             queue_event(g_event_queue, EVENT_TYPE_STOP_LINK);
+            uart2_send_response(cmd, UART2_RSP_OK, NULL, 0);
             break;
 
         case UART2_CMD_GET_STATUS:
+        {
             SID_PAL_LOG_INFO("CMD: GET_STATUS - state=%d, handle=%s",
                 app_context->state,
                 (app_context->sidewalk_handle != NULL) ? "active" : "null");
+            uint8_t status_data[2] = {
+                (uint8_t)app_context->state,
+                (app_context->sidewalk_handle != NULL) ? 1 : 0
+            };
+            uart2_send_response(cmd, UART2_RSP_OK, status_data, 2);
             break;
+        }
 
         default:
             SID_PAL_LOG_ERROR("UART2: Unknown command 0x%02X", cmd);
+            uart2_send_response(cmd, UART2_RSP_ERR, NULL, 0);
             break;
     }
 }
