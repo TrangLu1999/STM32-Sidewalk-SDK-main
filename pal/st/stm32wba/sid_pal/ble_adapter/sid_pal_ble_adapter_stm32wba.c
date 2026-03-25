@@ -997,6 +997,9 @@ SID_STM32_SPEED_OPTIMIZED static inline SVCCTL_UserEvtFlowStatus_t _ble_adapter_
                         break;
                     }
 
+                    /* BLE Status GPIO: signal connection to G0B1 */
+                    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+
 #if (SID_STM32_BLE_EXTENDED_ADV_SUPPORTED == 0)
                     /* Stop the related advertisement timer */
                     (void)UTIL_TIMER_Stop(&sid_ble_drv_ctx.adv_timer);
@@ -3663,6 +3666,10 @@ SID_STM32_SPEED_OPTIMIZED SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification(voi
                     /* Invalidate the associated generic connection context */
                     _ble_adapter_generic_invalidate_conn_ctx(conn_ctx);
                 }
+
+                /* BLE Status GPIO: signal disconnection to G0B1 */
+                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
+
                 sid_pal_exit_critical_region();
             }
             break;

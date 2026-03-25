@@ -814,6 +814,17 @@ void MX_GPIO_Init(void)
   RT_DEBUG_GPIO_Init();
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* BLE Status output pin (PB1) - HIGH when BLE connected, LOW otherwise */
+  {
+    GPIO_InitTypeDef BLE_Status_Init = {0};
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
+    BLE_Status_Init.Pin = GPIO_PIN_1;
+    BLE_Status_Init.Mode = GPIO_MODE_OUTPUT_PP;
+    BLE_Status_Init.Pull = GPIO_NOPULL;
+    BLE_Status_Init.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &BLE_Status_Init);
+  }
+
 #if SID_SDK_CONFIG_RF_TIMINGS_MEASUREMENT
   /*Configure GPIO pins related to the RF processing delays measurement */
   SIDEWALK_RF_TIMINGS_RXTX_START_GPIO_Port->BRR = SIDEWALK_RF_TIMINGS_RXTX_START_Pin;

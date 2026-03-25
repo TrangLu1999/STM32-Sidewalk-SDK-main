@@ -100,6 +100,11 @@
 #define UART2_CMD_SEND_DATA    0x02
 #define UART2_CMD_STOP_LINK    0x03
 #define UART2_CMD_GET_STATUS   0x04
+#define UART2_CMD_SET_BAUDRATE 0x05
+
+/* BLE Status GPIO (PB1) - output to G0B1 */
+#define BLE_STATUS_GPIO_PORT   GPIOB
+#define BLE_STATUS_GPIO_PIN    GPIO_PIN_1
 
 /* UART2 Response codes (WBA55 → G0B1) */
 #define UART2_RSP_OK           0xA0
@@ -546,6 +551,55 @@ static void parse_uart2_command(app_context_t *app_context)
                 (app_context->sidewalk_handle != NULL) ? 1 : 0
             };
             uart2_send_response(cmd, UART2_RSP_OK, status_data, 2);
+            break;
+        }
+
+        case UART2_CMD_SET_BAUDRATE:
+        {
+            if (payload_len != 4)
+            {
+                SID_PAL_LOG_ERROR("CMD: SET_BAUDRATE invalid payload_len=%d (need 4)", payload_len);
+                uart2_send_response(cmd, UART2_RSP_ERR, NULL, 0);
+                break;
+            }
+            uint32_t new_baud = (uint32_t)uart2_tx_buffer[2]
+                              | ((uint32_t)uart2_tx_buffer[3] << 8)
+                              | ((uint32_t)uart2_tx_buffer[4] << 16)
+                              | ((uint32_t)uart2_tx_buffer[5] << 24);
+            SID_PAL_LOG_INFO("CMD: SET_BAUDRATE to %lu", new_baud);
+
+            /* Send OK response at current baud rate first */
+            uart2_send_response(cmd, UART2_RSP_OK, (const uint8_t *)&new_baud, 4);
+
+            /* Wait for TX to complete before switching baud */
+            osDelay(10);
+
+            /* Disable DMA channel */
+            LL_DMA_DisableChannel(GPDMA1, LL_DMA_CHANNEL_3);
+            LL_DMA_ClearFlag_TC(GPDMA1, LL_DMA_CHANNEL_3);
+            LL_DMA_ClearFlag_DTE(GPDMA1, LL_DMA_CHANNEL_3);
+
+            /* Reinit UART with new baud rate */
+            HAL_UART_DeInit(&huart2);
+            huart2.Init.BaudRate = new_baud;
+            HAL_UART_Init(&huart2);
+            HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8);
+            HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8);
+            HAL_UARTEx_EnableFifoMode(&huart2);
+            __HAL_UART_ENABLE(&huart2);
+
+            /* Restart DMA reception */
+            DMA_InitStruct.SrcAddress = LL_USART_DMA_GetRegAddr(USART2, LL_USART_DMA_REG_DATA_RECEIVE);
+            DMA_InitStruct.DestAddress = (uint32_t)aUSART2RxBuffer;
+            LL_DMA_Init(GPDMA1, LL_DMA_CHANNEL_3, &DMA_InitStruct);
+            LL_DMA_SetBlkDataLength(GPDMA1, LL_DMA_CHANNEL_3, ubUSART2NbDataToReceive);
+            NVIC_SetPriority(GPDMA1_Channel3_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 6, 0));
+            NVIC_EnableIRQ(GPDMA1_Channel3_IRQn);
+            LL_DMA_EnableIT_TC(GPDMA1, LL_DMA_CHANNEL_3);
+            LL_DMA_EnableIT_DTE(GPDMA1, LL_DMA_CHANNEL_3);
+            LL_DMA_EnableChannel(GPDMA1, LL_DMA_CHANNEL_3);
+
+            SID_PAL_LOG_INFO("UART2 baud rate changed to %lu", new_baud);
             break;
         }
 
